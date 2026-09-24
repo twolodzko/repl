@@ -25,7 +25,7 @@ fn main() -> ExitCode {
     let mut reader = match DefaultEditor::with_config(config) {
         Ok(editor) => editor,
         Err(msg) => {
-            println!("{}", msg);
+            eprintln!("{}", msg);
             return ExitCode::FAILURE;
         }
     };
