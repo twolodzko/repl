@@ -16,3 +16,5 @@ or to run a calculator app run
 ```shell
 repl sh -c 'echo $((@))'
 ```
+
+You can change `@` to any placeholder by setting the `REPL_PLACEHOLDER` environment variable.
