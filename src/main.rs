@@ -81,7 +81,10 @@ struct Args {
 }
 
 impl Args {
-    fn new(args: Vec<Arg>) -> Self {
+    fn new(mut args: Vec<Arg>) -> Self {
+        if !args.iter().any(|a| matches!(a, Arg::Variable)) {
+            args.push(Arg::Variable);
+        }
         Args { args }
     }
 
