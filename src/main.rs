@@ -2,50 +2,70 @@ use rustyline::{Config, DefaultEditor, error::ReadlineError};
 use std::{
     env,
     process::{Command, ExitCode},
+    sync::LazyLock,
 };
 
-use crate::Arg::Literal;
+static PLACEHOLDER: LazyLock<String> =
+    LazyLock::new(|| env::var("REPL_PLACEHOLDER").unwrap_or("@".to_string()));
+static PROMPT: LazyLock<String> =
+    LazyLock::new(|| env::var("REPL_PROMPT").unwrap_or("> ".to_string()));
 
 fn main() -> ExitCode {
-    // todo: help
-    let prompt = env::var("REPL_PROMPT").unwrap_or("> ".to_string());
-    let placeholder = env::var("REPL_PLACEHOLDER").unwrap_or("@".to_string());
-
     let mut args = env::args();
+
+    if args.len() == 1 {
+        println!("Usage: {} command arg...", args.next().unwrap());
+        return ExitCode::SUCCESS;
+    }
+
     let cmd: String = args.nth(1).unwrap();
-    let args: Vec<Arg> = args.map(|s| Arg::parse(s, &placeholder)).collect();
+    let args = Args::new(args.map(Arg::parse).collect());
 
     let config = Config::builder().auto_add_history(true).build();
     let mut reader = match DefaultEditor::with_config(config) {
         Ok(editor) => editor,
         Err(msg) => {
-            println!("error: {}", msg);
+            println!("{}", msg);
             return ExitCode::FAILURE;
         }
     };
-    loop {
-        let line = match reader.readline(&prompt) {
-            Ok(line) => line,
-            Err(ReadlineError::Eof) => break,
-            Err(err) => {
-                println!("error: {}", err);
-                return ExitCode::FAILURE;
-            }
-        };
-        // todo: multiline with \ \n
 
-        match Command::new(&cmd)
-            .args(
-                args.iter()
-                    .map(|a| a.interpolate(line.to_string()))
-                    .collect::<Vec<String>>(),
-            )
-            .output()
-        {
+    'outer: loop {
+        let mut line = String::new();
+        let mut prompt = PROMPT.to_string();
+        let mut done = false;
+
+        while !done {
+            done = true;
+            match reader.readline(&prompt) {
+                Ok(mut s) => {
+                    if s.ends_with('\\') {
+                        done = false;
+                        s.pop();
+                    }
+                    line.push_str(&s);
+                    if s.ends_with('\\') {
+                        done = true
+                    } else if !done {
+                        line.push('\n');
+                    }
+                }
+                Err(ReadlineError::Interrupted) => continue 'outer,
+                Err(ReadlineError::Eof) => break 'outer,
+                Err(err) => {
+                    eprintln!("{}", err);
+                    return ExitCode::FAILURE;
+                }
+            }
+            prompt.clear();
+        }
+
+        let interpolated = args.interpolate(&line);
+        match Command::new(&cmd).args(&interpolated).output() {
             Ok(out) => {
                 if out.status.success() {
                     print!("{}", String::from_utf8_lossy(&out.stdout));
-                } else {
+                } else if !out.stderr.is_empty() {
                     print!("{}", String::from_utf8_lossy(&out.stderr));
                 }
             }
@@ -55,24 +75,51 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+#[derive(Debug)]
+struct Args {
+    args: Vec<Arg>,
+}
+
+impl Args {
+    fn new(args: Vec<Arg>) -> Self {
+        Args { args }
+    }
+
+    fn interpolate(&self, value: &str) -> Vec<String> {
+        let mut acc = Vec::new();
+        for a in &self.args {
+            let s = a.interpolate(value);
+            acc.push(s);
+        }
+        acc
+    }
+}
+
+#[derive(Debug)]
 enum Arg {
     Literal(String),
-    Placeholder,
+    Variable,
     Template(Vec<Arg>),
 }
 
 impl Arg {
-    fn parse(value: String, placeholder: &str) -> Arg {
+    fn parse(value: String) -> Arg {
         let mut acc = Vec::new();
-        let mut literals = value.split(placeholder);
-        acc.push(
-            literals
-                .nth(0)
-                .map_or(Arg::Placeholder, |s| Literal(s.to_string())),
-        );
+        let mut literals = value.split(&*PLACEHOLDER);
+
+        if let Some(s) = literals.nth(0) {
+            if !s.is_empty() {
+                acc.push(Arg::Literal(s.to_string()));
+            }
+        } else {
+            return Arg::Variable;
+        }
+
         for s in literals {
-            acc.push(Arg::Placeholder);
-            acc.push(Arg::Literal(s.to_string()));
+            acc.push(Arg::Variable);
+            if !s.is_empty() {
+                acc.push(Arg::Literal(s.to_string()));
+            }
         }
         if acc.len() == 1 {
             acc.pop().unwrap()
@@ -81,14 +128,14 @@ impl Arg {
         }
     }
 
-    fn interpolate(&self, value: String) -> String {
+    fn interpolate(&self, value: &str) -> String {
         use Arg::*;
         match self {
             Literal(s) => s.to_string(),
-            Placeholder => value,
+            Variable => value.to_string(),
             Template(v) => v
                 .iter()
-                .map(|a| a.interpolate(value.to_string()))
+                .map(|a| a.interpolate(value))
                 .collect::<Vec<_>>()
                 .join(""),
         }
