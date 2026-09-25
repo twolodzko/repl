@@ -14,7 +14,20 @@ fn main() -> ExitCode {
     let mut args = env::args();
 
     if args.len() == 1 {
-        println!("Usage: {} command arg...", args.next().unwrap());
+        let bin = args.next().unwrap();
+        println!(
+            "Usage: {} command arg...\n\n\
+            Open read-eval-print loop for the command with the arg... arguments. \
+            In the arguments, replace {} with the text provided through the REPL prompt, \
+            if {} is not among the arguments, push the text at the end of the evaluated command. \
+            For example:\n\n\
+            {} sh -c 'echo $(({}))'\n\n\
+            would start a REPL that evaluates arithmetic expressions using shell's $(()) \
+            and print them using echo.\n\n\
+            The {} placeholder can be changed using the REPL_PLACEHOLDER environment variable. \
+            The REPL prompt can be customized using the REPL_PROMPT environment variable.",
+            bin, *PLACEHOLDER, *PLACEHOLDER, bin, *PLACEHOLDER, *PLACEHOLDER,
+        );
         return ExitCode::SUCCESS;
     }
 
@@ -29,6 +42,8 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    print!("Use ^C to cancel command and ^D to exit\n\n");
 
     'outer: loop {
         let mut line = String::new();
@@ -82,7 +97,10 @@ struct Args {
 
 impl Args {
     fn new(mut args: Vec<Arg>) -> Self {
-        if !args.iter().any(|a| matches!(a, Arg::Variable)) {
+        if !args
+            .iter()
+            .any(|a| matches!(a, Arg::Variable | Arg::Template(_)))
+        {
             args.push(Arg::Variable);
         }
         Args { args }
