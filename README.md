@@ -5,7 +5,7 @@ interactively as a read-eval-print loop. Use `@` as w wildcard parameter
 to be replaced by the command provided in a REPL command. If `@` is not
 given, the command is appended to the parameters.
 
-For example, oo create a REPL for sed run
+For example, to create a REPL for sed run
 
 ```shell
 repl sed @ src/main.rs
