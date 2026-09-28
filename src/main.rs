@@ -1,4 +1,4 @@
-use rustyline::{Config, DefaultEditor, error::ReadlineError};
+use rustyline::{Config, DefaultEditor, Editor, error::ReadlineError, history::FileHistory};
 use std::{
     env,
     process::{Command, ExitCode},
@@ -45,37 +45,16 @@ fn main() -> ExitCode {
 
     print!("Use ^C to cancel command and ^D to exit\n\n");
 
-    'outer: loop {
-        let mut line = String::new();
-        let mut prompt = PROMPT.to_string();
-        let mut done = false;
-
-        while !done {
-            done = true;
-            match reader.readline(&prompt) {
-                Ok(mut s) => {
-                    if s.ends_with('\\') {
-                        done = false;
-                        s.pop();
-                    }
-                    line.push_str(&s);
-                    if s.ends_with('\\') {
-                        done = true
-                    } else if !done {
-                        line.push('\n');
-                    }
-                }
-                Err(ReadlineError::Interrupted) => continue 'outer,
-                Err(ReadlineError::Eof) => break 'outer,
-                Err(err) => {
-                    eprintln!("{}", err);
-                    return ExitCode::FAILURE;
-                }
+    loop {
+        let interpolated = match read_line(&mut reader) {
+            Ok(line) => args.interpolate(&line),
+            Err(ReadlineError::Interrupted) => continue,
+            Err(ReadlineError::Eof) => break,
+            Err(err) => {
+                eprintln!("{}", err);
+                return ExitCode::FAILURE;
             }
-            prompt.clear();
-        }
-
-        let interpolated = args.interpolate(&line);
+        };
         match Command::new(&cmd).args(&interpolated).output() {
             Ok(out) => {
                 if out.status.success() {
@@ -88,6 +67,29 @@ fn main() -> ExitCode {
         };
     }
     ExitCode::SUCCESS
+}
+
+fn read_line(reader: &mut Editor<(), FileHistory>) -> Result<String, ReadlineError> {
+    let mut line = String::new();
+    let mut prompt = PROMPT.to_string();
+    let mut done = false;
+
+    while !done {
+        done = true;
+        let mut s = reader.readline(&prompt)?;
+        if s.ends_with('\\') {
+            done = false;
+            s.pop();
+        }
+        line.push_str(&s);
+        if s.ends_with('\\') {
+            done = true
+        } else if !done {
+            line.push('\n');
+        }
+        prompt.clear();
+    }
+    Ok(line)
 }
 
 #[derive(Debug)]
