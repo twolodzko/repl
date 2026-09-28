@@ -64,17 +64,17 @@ fn run(cmd: &str, args: Args, reader: &mut Editor<(), FileHistory>) -> Result<()
             Err(ReadlineError::Eof) => break,
             Err(err) => return Err(err),
         };
-        match Command::new(&cmd).args(&interpolated).output() {
+        match Command::new(cmd).args(&interpolated).output() {
             Ok(res) => {
                 if res.status.success() {
                     out.write_all(&res.stdout)?;
                     if !res.stdout.ends_with(b"\n") {
-                        out.write(b"\n")?;
+                        let _ = out.write(b"\n")?;
                     }
                 } else if !res.stderr.is_empty() {
                     out.write_all(&res.stderr)?;
                     if !res.stderr.ends_with(b"\n") {
-                        out.write(b"\n")?;
+                        let _ = out.write(b"\n")?;
                     }
                 }
                 out.flush()?;
