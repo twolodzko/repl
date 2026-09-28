@@ -1,6 +1,7 @@
 use rustyline::{Config, DefaultEditor, Editor, error::ReadlineError, history::FileHistory};
 use std::{
     env,
+    io::Write,
     process::{Command, ExitCode},
     sync::LazyLock,
 };
@@ -43,30 +44,45 @@ fn main() -> ExitCode {
         }
     };
 
-    print!("Use ^C to cancel command and ^D to exit\n\n");
+    match run(&cmd, args, &mut reader) {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("{}", err);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(cmd: &str, args: Args, reader: &mut Editor<(), FileHistory>) -> Result<(), ReadlineError> {
+    let mut out = std::io::stdout();
+    write!(out, "Use ^C to cancel command and ^D to exit\n\n")?;
 
     loop {
-        let interpolated = match read_line(&mut reader) {
+        let interpolated = match read_line(reader) {
             Ok(line) => args.interpolate(&line),
             Err(ReadlineError::Interrupted) => continue,
             Err(ReadlineError::Eof) => break,
-            Err(err) => {
-                eprintln!("{}", err);
-                return ExitCode::FAILURE;
-            }
+            Err(err) => return Err(err),
         };
         match Command::new(&cmd).args(&interpolated).output() {
-            Ok(out) => {
-                if out.status.success() {
-                    print!("{}", String::from_utf8_lossy(&out.stdout));
-                } else if !out.stderr.is_empty() {
-                    print!("{}", String::from_utf8_lossy(&out.stderr));
+            Ok(res) => {
+                if res.status.success() {
+                    out.write_all(&res.stdout)?;
+                    if !res.stdout.ends_with(b"\n") {
+                        out.write(b"\n")?;
+                    }
+                } else if !res.stderr.is_empty() {
+                    out.write_all(&res.stderr)?;
+                    if !res.stderr.ends_with(b"\n") {
+                        out.write(b"\n")?;
+                    }
                 }
+                out.flush()?;
             }
-            Err(err) => println!("{}", err),
+            Err(err) => writeln!(out, "{}", err)?,
         };
     }
-    ExitCode::SUCCESS
+    Ok(())
 }
 
 fn read_line(reader: &mut Editor<(), FileHistory>) -> Result<String, ReadlineError> {
